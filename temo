@@ -1,0 +1,334 @@
+import React from "react";
+import {
+  SkeletonText,
+  Input,
+  Button,
+  ButtonGroup,
+  Select,
+  IconButton,
+  VStack,
+  Alert,
+  AlertIcon,
+  Menu,
+  MenuButton,
+  MenuList,
+  HStack,
+  MenuItem,
+  Avatar,
+} from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+
+import { faLocation, faRefresh, faX } from "@fortawesome/free-solid-svg-icons";
+import { FaLocationArrow, FaTimes } from "react-icons/fa";
+
+import { db } from "./firebase-config";
+import { collection, getDocs, query, where } from "firebase/firestore";
+
+import {
+  useJsApiLoader,
+  GoogleMap,
+  Marker,
+  Autocomplete,
+  DirectionsRenderer,
+} from "@react-google-maps/api";
+import { useRef, useState, useEffect } from "react";
+import CarSelection from "./CarSelection";
+import Protected from "./Protected";
+import Signin from "./Signin";
+import { UserAuth } from "./context/AuthContext";
+import Pollution from "./CarPoll";
+import Transit from "./Transit";
+import Mode from "./Mode";
+import Compare from "./Compare";
+import Navbar from "./Navbar";
+
+const center = { lat: -1.2472, lng: 36.6791 };
+
+const Map2 = () => {
+  const { user } = UserAuth();
+
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY,
+    libraries: ["places"],
+  });
+
+  const [models, setModels] = useState([]);
+  const [modelSearch, setModelSearch] = useState("");
+  const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const ModelsRef = collection(db, "demo_car_models");
+  const userRef = collection(db, "users");
+  const [map, setMap] = useState(/** @type google.maps.Map */ (null));
+  const [transDirectionsResponse, setTransDirectionsResponse] = useState(null);
+  const [driveDirectionsResponse, setDriveDirectionsResponse] = useState(null);
+
+  const [transDistance, setTransDistance] = useState("");
+  const [transDistanceVal, setTransDistanceVal] = useState(0);
+  const [transDuration, setTransDuration] = useState("");
+  const [transRoute, setTransRoute] = useState([]);
+
+  const [driveDistance, setDriveDistance] = useState("");
+  const [driveDistanceVal, setDriveDistanceVal] = useState(0);
+  const [driveDuration, setDriveDuration] = useState("");
+  const [driveRoute, setDriveRoute] = useState([]);
+
+  const [currLocation, setCurrLocation] = useState(center);
+  const [unit, setUnit] = useState("");
+  const [reset, setReset] = useState("");
+  const [calc, setCalc] = useState(0);
+
+  const [userCarId, setUserCarId] = useState("");
+
+  const [modes, setModes] = useState("");
+
+  const redirect = (reset) => {
+    setReset(reset);
+  };
+
+  const setMode = (modes) => {
+    setModes(modes);
+  };
+
+  /** @type React.MutableRefObject<HTMLInputElement> */
+  const originRef = useRef();
+
+  /** @type React.MutableRefObject<HTMLInputElement> */
+  const destinationRef = useRef();
+
+  useEffect(() => {
+    const getCarId = async () => {
+      const q = query(userRef, where("email", "==", user.email));
+
+      const data = await getDocs(q);
+      data.forEach((doc) => {
+        setUserCarId(doc.data().car);
+      });
+    };
+    getCarId();
+
+    const getModels = async () => {
+      const data = await getDocs(ModelsRef);
+      setModels(data.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+    };
+
+    getModels();
+
+    navigator.geolocation.getCurrentPosition(successLocation, errorLocation, {
+      enableHighAccuracy: true,
+    });
+    function successLocation(position) {
+      setCurrLocation({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+      });
+    }
+
+    function errorLocation() {
+      setCurrLocation(center);
+    }
+  }, [user, reset]);
+
+  const [error, serError] = useState("");
+
+  const calculateRoute = async () => {
+    if (
+      // originRef.current.value === "" ||
+      destinationRef.current.value === ""
+    ) {
+      return;
+    }
+
+    let transResults;
+    let driveResults;
+    try {
+      // eslint-disable-next-line no-undef
+      const directionsService = new google.maps.DirectionsService();
+      if (originRef.current.value === "") {
+        transResults = await directionsService.route({
+          // origin: originRef.current.value,
+          origin: currLocation,
+
+          // destination: center,
+          destination: destinationRef.current.value,
+          // eslint-disable-next-line no-undef
+          travelMode: "TRANSIT",
+          // eslint-disable-next-line no-undef,
+        });
+        driveResults = await directionsService.route({
+          // origin: originRef.current.value,
+          origin: currLocation,
+
+          // destination: center,
+          destination: destinationRef.current.value,
+          // eslint-disable-next-line no-undef
+          travelMode: "DRIVING",
+          // eslint-disable-next-line no-undef,
+        });
+      } else {
+        transResults = await directionsService.route({
+          origin: originRef.current.value,
+          //  origin: origin,
+
+          // destination: center,
+          destination: destinationRef.current.value,
+          // eslint-disable-next-line no-undef
+          travelMode: "TRANSIT",
+          // eslint-disable-next-line no-undef,
+        });
+        driveResults = await directionsService.route({
+          origin: originRef.current.value,
+          //  origin: origin,
+
+          // destination: center,
+          destination: destinationRef.current.value,
+          // eslint-disable-next-line no-undef
+          travelMode: "DRIVING",
+          // eslint-disable-next-line no-undef,
+        });
+      }
+    } catch (e) {
+      console.log("error", e);
+      let error = e.message.split(":");
+      serError(
+        <Alert status="error">
+          <AlertIcon />
+          {error[2]}
+        </Alert>
+      );
+
+      const clearError = () => {
+        serError("");
+      };
+
+      setTimeout(clearError, 5000);
+
+      return;
+    }
+    setTransDirectionsResponse(transResults);
+    setDriveDirectionsResponse(driveResults);
+
+    setTransDistance(transResults.routes[0].legs[0].distance.text);
+    setTransDistanceVal(transResults.routes[0].legs[0].distance.value);
+    setTransDuration(transResults.routes[0].legs[0].duration.text);
+    setTransRoute(transResults.routes[0].legs[0].steps);
+
+    setDriveDistance(driveResults.routes[0].legs[0].distance.text);
+    setDriveDistanceVal(driveResults.routes[0].legs[0].distance.value);
+    setDriveDuration(driveResults.routes[0].legs[0].duration.text);
+    setDriveRoute(driveResults.routes[0].legs[0].steps);
+
+    // console.log(results.routes[0].legs[0].steps);
+    // console.log(results.routes[0].legs[0].steps.travelMode);
+  };
+  if (!isLoaded) {
+    return <SkeletonText />;
+  }
+
+  return (
+    <div>
+      <div className="drawer drawer-mobile ">
+        <input id="my-drawer-2" type="checkbox" className="drawer-toggle" />
+        <div className="drawer-content flex flex-col items-center justify-center">
+          <GoogleMap
+            center={currLocation}
+            zoom={15}
+            mapContainerStyle={{ width: "100%", height: "100%" }}
+            options={{
+              zoomControl: false,
+              streetViewControl: false,
+              mapTypeControl: false,
+              fullscreenControl: false,
+            }}
+            onLoad={(map) => setMap(map)}
+          >
+            <Marker position={currLocation} />
+            {transDirectionsResponse &&
+            driveDirectionsResponse &&
+            modes === "TRANSIT" ? (
+              <DirectionsRenderer directions={transDirectionsResponse} />
+            ) : (
+              <DirectionsRenderer directions={driveDirectionsResponse} />
+            )}
+            {error}
+          </GoogleMap>
+        </div>
+        <div className="drawer-side w-full">
+          <label htmlFor="my-drawer-2" className="drawer-overlay"></label>
+          <ul className="menu w-96 bg-base-100 text-base-content ">
+            <VStack spacing={2} className="w-full shadow-md  mb-3 pb-5 pt-10">
+              {user && user.displayName}
+              <HStack>
+                <FontAwesomeIcon
+                  icon={faLocation}
+                  onClick={() => (originRef.current.value = "")}
+                />
+
+                <Autocomplete>
+                  <Input
+                    type="text"
+                    placeholder="Current Location"
+                    ref={originRef}
+                    //
+                    ClassName="z-20 w-1/2"
+                    autocomplete="off"
+                  />
+                </Autocomplete>
+              </HStack>
+
+              <HStack>
+                <FontAwesomeIcon
+                  icon={faRefresh}
+                  onClick={() => (destinationRef.current.value = "")}
+                />
+
+                <Autocomplete>
+                  <Input
+                    type="text"
+                    placeholder="Destination"
+                    ref={destinationRef}
+                  />
+                </Autocomplete>
+              </HStack>
+              <p>{unit}</p>
+              <ButtonGroup>
+                <button
+                  className="btn btn-outline btn-primary"
+                  type="submit"
+                  onClick={calculateRoute}
+                >
+                  Calculate CO2 Emmissions
+                </button>
+              </ButtonGroup>
+            </VStack>
+            <VStack>
+              {userCarId ? (
+                <Compare
+                  transDistance={transDistance}
+                  transDistanceVal={transDistanceVal}
+                  transDuration={transDuration}
+                  transRoute={transRoute}
+                  driveDistance={driveDistance}
+                  driveDistanceVal={driveDistanceVal}
+                  driveDuration={driveDuration}
+                  driveRoute={driveRoute}
+                  setMode={setMode}
+                />
+              ) : (
+                <Signin redirect={redirect} />
+              )}
+            </VStack>
+            <Menu>
+              <MenuButton as={Button} className="rounded-full">
+                Logout
+              </MenuButton>
+              <MenuList>
+                <Navbar />
+              </MenuList>
+            </Menu>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Map2;
